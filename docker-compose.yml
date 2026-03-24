@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: nac_db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: radius_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d radius_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nac_network
+
+  redis:
+    image: redis:8-alpine
+    container_name: nac_redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+    networks:
+      - nac_network
+
+  api:
+    build: ./api
+    container_name: nac_api
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    networks:
+      - nac_network
+
+  freeradius:
+    image: freeradius/freeradius-server:latest-3.2
+    container_name: nac_radius
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    depends_on:
+      - api
+    networks:
+      - nac_network
+
+networks:
+  nac_network:
+    driver: bridge
