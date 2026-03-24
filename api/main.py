@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 import psycopg2
 import redis
 import os
@@ -6,10 +6,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
-
 app = FastAPI()
 
-# Veritabanı Bağlantısı
+# DB Bağlantısı
 def get_db_conn():
     return psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
@@ -18,20 +17,16 @@ def get_db_conn():
         password=os.getenv("DB_PASSWORD", "radius_password")
     )
 
-# Redis Bağlantısı
+# Redis Bağlantısı (Aktif oturum takibi için)
 r = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=6379, db=0)
 
 @app.post("/auth")
 async def auth(data: dict):
     username = data.get("username")
     password = data.get("password")
-    
-    # Basit bir kontrol: Kullanıcı 'kaya' ise VLAN 10 ile kabul et
+    # Ödev: Basit auth ve VLAN ataması
     if username == "kaya" and password == "123456":
-        # Redis'e giriş bilgisini işle (opsiyonel)
-        r.set(f"user:{username}:status", "online")
         return {"status": "accept", "vlan": "10"}
-    
     return {"status": "reject"}
 
 @app.post("/accounting")
@@ -39,47 +34,49 @@ async def accounting(data: dict):
     username = data.get("username")
     status = data.get("status")
     session_id = data.get("session_id")
-    
-    # Veritabanındaki NOT NULL kısıtlamalarını aşmak için varsayılan değerler
     nas_ip = "127.0.0.1"
-    acct_unique_id = f"unique-{session_id}"
     
     conn = get_db_conn()
     cur = conn.cursor()
-    
     try:
         if status == "Start":
-            # Zorunlu alanları (nasipaddress, acctuniqueid) ekleyerek kaydediyoruz
+            # DB'ye kaydet
             cur.execute("""
-                INSERT INTO radacct (
-                    acctsessionid, acctuniqueid, username, 
-                    nasipaddress, acctstarttime, acctupdatetime
-                )
+                INSERT INTO radacct (acctsessionid, acctuniqueid, username, nasipaddress, acctstarttime, acctupdatetime)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                session_id, acct_unique_id, username, 
-                nas_ip, datetime.now(), datetime.now()
-            ))
-            print(f"DEBUG: Accounting Start recorded for {username}")
+            """, (session_id, f"unique-{session_id}", username, nas_ip, datetime.now(), datetime.now()))
+            # Ödev 3.4: Aktif oturumu Redis'te cache'le (1 saatlik ömürle)
+            r.setex(f"active_session:{username}", 3600, session_id)
             
         elif status == "Stop":
             cur.execute("""
-                UPDATE radacct 
-                SET acctstoptime = %s, acctupdatetime = %s 
-                WHERE acctsessionid = %s
+                UPDATE radacct SET acctstoptime = %s, acctupdatetime = %s WHERE acctsessionid = %s
             """, (datetime.now(), datetime.now(), session_id))
-            print(f"DEBUG: Accounting Stop recorded for {username}")
-
+            # Ödev 3.4: Oturum bittiğinde Redis'ten sil
+            r.delete(f"active_session:{username}")
+            
         conn.commit()
     except Exception as e:
-        print(f"DATABASE ERROR: {e}")
         conn.rollback()
     finally:
         cur.close()
         conn.close()
-        
     return {"status": "success"}
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
+@app.get("/users")
+async def get_users():
+    # Ödev 3.5: Kullanıcı listesi
+    conn = get_db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM radacct GROUP BY username")
+    users = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return {"registered_users": users}
+
+@app.get("/sessions/active")
+async def get_active_sessions():
+    # Ödev 3.5: Aktif oturumları Redis'ten sorgula
+    keys = r.keys("active_session:*")
+    active_users = [k.decode().split(":")[1] for k in keys]
+    return {"active_sessions_count": len(active_users), "users": active_users}
