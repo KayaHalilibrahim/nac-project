@@ -24,7 +24,9 @@ services:
       - nac_network
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      network: host
     container_name: nac_api
     depends_on:
       db:
@@ -32,8 +34,7 @@ services:
       redis:
         condition: service_healthy
     env_file: .env
-    networks:
-      - nac_network
+    network_mode: "host"
 
   freeradius:
     image: freeradius/freeradius-server:latest-3.2
