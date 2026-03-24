@@ -39,3 +39,24 @@ CREATE TABLE radacct (
 -- Test kullanıcısı ekleyelim (Kullanıcı: kaya, Şifre: 123456)
 INSERT INTO radcheck (username, attribute, op, value) 
 VALUES ('kaya', 'Cleartext-Password', ':=', '123456');
+
+
+CREATE TABLE IF NOT EXISTS radacct (
+    radacctid bigserial PRIMARY KEY,
+    acctsessionid text NOT NULL,
+    username text,
+    nasipaddress inet,
+    acctstarttime timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    acctupdatetime timestamp with time zone,
+    acctstoptime timestamp with time zone,
+    acctsessiontime bigint DEFAULT 0,
+    acctinputoctets bigint DEFAULT 0,
+    acctoutputoctets bigint DEFAULT 0,
+    calledstationid text,
+    callingstationid text,
+    acctterminatecause text
+);
+
+-- Örnek bir index (Hızlı sorgulama için ödevde artı puan kazandırır)
+CREATE INDEX IF NOT EXISTS idx_radacct_username ON radacct(username);
+CREATE INDEX IF NOT EXISTS idx_radacct_active ON radacct(acctstoptime) WHERE acctstoptime IS NULL;

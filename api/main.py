@@ -2,59 +2,64 @@ from fastapi import FastAPI, Request
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from datetime import datetime
 
 app = FastAPI(title="NAC Policy Engine")
 
-# Veritabanı bağlantı bilgileri (Environment variables'dan alıyoruz)
-DB_USER = os.getenv("DB_USER", "radius_user")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "radius_pass")
-DB_NAME = "radius_db"
-DB_HOST = "localhost" # Host network kullandığımız için localhost
+# DB Bağlantı Ayarları
+DB_CONFIG = {
+    "dbname": "radius_db",
+    "user": os.getenv("DB_USER", "radius_user"),
+    "password": os.getenv("DB_PASSWORD", "radius_pass"),
+    "host": "localhost"
+}
 
 def get_db_connection():
-    return psycopg2.connect(
-        dbname=DB_NAME, 
-        user=DB_USER, 
-        password=DB_PASSWORD, 
-        host=DB_HOST
-    )
+    return psycopg2.connect(**DB_CONFIG)
 
-@app.get("/")
-def read_root():
-    return {"status": "NAC API is running"}
-
-@app.get("/health")
-def health_check():
-    """Sistemin ayakta olduğunu kontrol eder"""
-    return {"status": "alive"}
-
-# RADIUS Buraya soracak: "Bu kullanıcı ve şifre doğru mu?"
 @app.post("/auth")
 async def authenticate(request: Request):
-    try:
-        data = await request.json()
-        username = data.get("username")
-        password = data.get("password")
+    data = await request.json()
+    username = data.get("username")
+    password = data.get("password")
 
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Veritabanında kullanıcıyı ve şifresini sorgula
-        query = "SELECT value FROM radcheck WHERE username=%s AND attribute='Cleartext-Password'"
-        cur.execute(query, (username,))
-        result = cur.fetchone()
-        
-        cur.close()
-        conn.close()
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT value FROM radcheck WHERE username=%s AND attribute='Cleartext-Password'", (username,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
 
-        # Şifre kontrolü ve Yanıt
-        if result and result['value'] == password:
-            # Başarılı: RADIUS'a 'accept' ve atanacak VLAN bilgisini dönüyoruz
-            return {"status": "accept", "vlan": "10"}
-        
-        # Hatalı şifre veya kullanıcı yoksa
-        return {"status": "reject"}
+    if result and result['value'] == password:
+        return {"status": "accept", "vlan": "10"}
+    return {"status": "reject"}
 
-    except Exception as e:
-        # Bir hata oluşursa (DB bağlantısı vb.) reddet ve hatayı belirt
-        return {"status": "reject", "error": str(e)}
+@app.post("/accounting")
+async def accounting(request: Request):
+    data = await request.json()
+    status = data.get("status") # "Start" veya "Stop"
+    username = data.get("username")
+    session_id = data.get("session_id", "unknown")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    if status == "Start":
+        # Yeni oturum kaydı oluştur
+        cur.execute("""
+            INSERT INTO radacct (acctsessionid, username, acctstarttime)
+            VALUES (%s, %s, %s)
+        """, (session_id, username, datetime.now()))
+    
+    elif status == "Stop":
+        # Mevcut oturumu sonlandır
+        cur.execute("""
+            UPDATE radacct 
+            SET acctstoptime = %s 
+            WHERE acctsessionid = %s AND acctstoptime IS NULL
+        """, (datetime.now(), session_id))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"status": "success"}
