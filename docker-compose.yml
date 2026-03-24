@@ -1,51 +1,58 @@
 services:
+  # 1. Veritabanı Servisi
   db:
-    image: postgres:18-alpine
+    image: postgres:15-alpine
     container_name: nac_db
+    env_file: .env
     environment:
+      POSTGRES_DB: radius_db
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: radius_db
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d radius_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d radius_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     network_mode: "host"
 
+  # 2. Önbellek Servisi
   redis:
-    image: redis:8-alpine
+    image: redis:7-alpine
     container_name: nac_redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
     network_mode: "host"
 
+  # 3. Policy Engine (FastAPI)
   api:
-    build:
-      context: ./api
-      network: host  # Build sırasında DNS hatasını önlemek için kritik
+    build: ./api
     container_name: nac_api
+    env_file: .env
+    volumes:
+      - ./api:/app
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file: .env
     network_mode: "host"
-    restart: always
 
+  # 4. RADIUS Sunucusu (FreeRADIUS)
   freeradius:
-    build:
-      context: ./radius
-      network: host  # Build sırasında curl yükleyebilmesi için kritik
+    build: ./radius
     container_name: nac_radius
     volumes:
       - ./radius/api_call.sh:/etc/raddb/api_call.sh
       - ./radius/users:/etc/raddb/mods-config/files/authorize
-    command: ["freeradius", "-X", "-f"]
+      - ./radius/default:/etc/raddb/sites-enabled/default
+      # KRİTİK: Modül tanımını enabled klasörüne atıyoruz
+      - ./radius/exec:/etc/raddb/mods-enabled/api_accounting
+    entrypoint: /bin/sh -c "chmod +x /etc/raddb/api_call.sh && freeradius -X -f"
     depends_on:
       - api
     network_mode: "host"

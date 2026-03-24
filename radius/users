@@ -1,2 +1,2 @@
-DEFAULT Auth-Type := Accept
-    Exec-Program-Wait = "/etc/raddb/api_call.sh %{User-Name} %{User-Password}"
+kaya    Cleartext-Password := "123456"
+        Exec-Program-Wait = "/etc/raddb/api_call.sh auth %{User-Name} %{User-Password}"

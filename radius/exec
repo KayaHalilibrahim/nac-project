@@ -1,0 +1,6 @@
+exec api_accounting {
+    wait = yes
+    program = "/etc/raddb/api_call.sh acct %{User-Name} %{Acct-Status-Type} %{Acct-Session-Id}"
+    input_pairs = request
+    output_pairs = reply
+}

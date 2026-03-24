@@ -1,0 +1,43 @@
+server default {
+    listen {
+        type = auth
+        ipaddr = *
+        port = 1812
+    }
+
+    listen {
+        type = acct
+        ipaddr = *
+        port = 1813
+    }
+
+    authorize {
+        preprocess
+        # Önce kullanıcıyı ve şifreyi 'users' dosyasından oku
+        files
+        # Şifre kontrolü için PAP modülünü aktif et
+        pap
+    }
+
+    authenticate {
+        Auth-Type PAP {
+            pap
+        }
+    }
+
+    accounting {
+        detail
+        # Accounting paketlerini API'ye gönderen modülümüz
+        api_accounting
+    }
+
+    post-auth {
+        # Kimlik doğrulamadan hemen sonra VLAN bilgisini API'den çekip pakete ekler
+        api_accounting
+
+        # Eğer script 'exit 1' dönerse Access-Reject basar
+        Post-Auth-Type REJECT {
+            attr_filter.access_reject
+        }
+    }
+}
