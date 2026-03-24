@@ -1,0 +1,11 @@
+krest {
+    # localhost bazen sorun çıkarabilir, 127.0.0.1 garantidir
+    connect_uri = "http://127.0.0.1:8000"
+    
+    authenticate {
+        uri = "${..connect_uri}/auth"
+        method = "post"
+        body = "json"
+        data = '{ "username": "%{User-Name}", "password": "%{User-Password}" }'
+    }
+}

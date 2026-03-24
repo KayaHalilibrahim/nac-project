@@ -11,8 +11,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - nac_network
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    network_mode: "host"
 
   redis:
     image: redis:8-alpine
@@ -20,13 +21,12 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-    networks:
-      - nac_network
+    network_mode: "host"
 
   api:
     build:
       context: ./api
-      network: host
+      network: host  # Build sırasında DNS hatasını önlemek için kritik
     container_name: nac_api
     depends_on:
       db:
@@ -35,18 +35,17 @@ services:
         condition: service_healthy
     env_file: .env
     network_mode: "host"
+    restart: always
 
   freeradius:
-    image: freeradius/freeradius-server:latest-3.2
+    build:
+      context: ./radius
+      network: host  # Build sırasında curl yükleyebilmesi için kritik
     container_name: nac_radius
-    ports:
-      - "1812:1812/udp"
-      - "1813:1813/udp"
+    volumes:
+      - ./radius/api_call.sh:/etc/raddb/api_call.sh
+      - ./radius/users:/etc/raddb/mods-config/files/authorize
+    command: ["freeradius", "-X", "-f"]
     depends_on:
       - api
-    networks:
-      - nac_network
-
-networks:
-  nac_network:
-    driver: bridge
+    network_mode: "host"
